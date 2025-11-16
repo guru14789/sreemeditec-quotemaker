@@ -89,21 +89,29 @@ export const generatePdf = (data: QuotationData) => {
     yPos += 8; // Increased spacing
     
     // Subject
-    const productNames = data.products.map(p => p.name).join(' and ');
     doc.setFont('helvetica', 'bold');
-    doc.text(`Sub: Reg. Price Quotation for ${productNames}.`, 14, yPos);
-    yPos += 7; // Increased spacing
+    const subjectText = `Sub: ${data.subject}`;
+    const subjectLines = doc.splitTextToSize(subjectText, pageWidth - 28); // 28 = 14 margin left + 14 margin right
+    doc.text(subjectLines, 14, yPos);
+    yPos += subjectLines.length * 4.5 + 2.5; // 4.5 per line + 2.5 extra spacing
     
     doc.setFont('helvetica', 'normal');
     doc.text('Sir, this is with ref to the discussion we had with you we are happy in submitting our quotation for the same.', 14, yPos);
     yPos += 8; // Increased spacing
 
+    // Pre-calculate totals for table
+    const grossTotal = data.products.reduce((acc, p) => acc + (p.quantity * p.rate), 0);
+    const totalDiscountAmount = data.totalDiscountAmount || 0;
+
     // Products Table
     const tableData = data.products.map((p: ProductItem) => {
-        const baseAmount = p.quantity * p.rate;
-        const gstAmount = baseAmount * (p.gstRate / 100);
-        const totalAmount = baseAmount + gstAmount;
+        const productValue = p.quantity * p.rate;
+        const discountForProduct = grossTotal > 0 ? (productValue / grossTotal) * totalDiscountAmount : 0;
+        const taxableValueForProduct = productValue - discountForProduct;
+        const gstAmount = taxableValueForProduct * (p.gstRate / 100);
+        const totalAmount = taxableValueForProduct + gstAmount;
         const featuresText = p.features.split('\n').map(f => `• ${f}`).join('\n');
+        
         return [
             p.name,
             p.model,
@@ -119,7 +127,7 @@ export const generatePdf = (data: QuotationData) => {
     // FIX: Switched to functional call for jspdf-autotable.
     autoTable(doc, {
         startY: yPos,
-        head: [['Product', 'Model', 'Features', 'Qty', 'Rate', 'GST %', 'GST Amount', 'Amount']],
+        head: [['Product', 'Model', 'Features', 'Qty', 'Rate', 'GST %', 'GST Amt', 'Amount']],
         body: tableData,
         theme: 'grid',
         headStyles: {
@@ -129,15 +137,15 @@ export const generatePdf = (data: QuotationData) => {
         },
         styles: {
             cellPadding: 2,
-            fontSize: 9,
+            fontSize: 8,
             valign: 'top',
             lineWidth: 0.1,
             lineColor: [0, 0, 0],
         },
         columnStyles: {
-            0: { halign: 'left' },
-            1: { halign: 'left' },
-            2: { cellWidth: 45, halign: 'left' },
+            0: { cellWidth: 25 },
+            1: { cellWidth: 25 },
+            2: { cellWidth: 40 },
             3: { halign: 'center' },
             4: { halign: 'right' },
             5: { halign: 'right' },
@@ -153,16 +161,19 @@ export const generatePdf = (data: QuotationData) => {
         },
     });
 
-    yPos = (doc as any).lastAutoTable.finalY + 10; // Increased spacing
+    yPos = (doc as any).lastAutoTable.finalY + 10;
 
     // Totals
-    const subTotal = data.products.reduce((acc, p) => {
-        const baseAmount = p.quantity * p.rate;
-        const totalAmount = baseAmount + (baseAmount * (p.gstRate / 100));
-        return acc + totalAmount;
+    const subTotal = grossTotal - totalDiscountAmount;
+    const totalGst = data.products.reduce((acc, p) => {
+        const productValue = p.quantity * p.rate;
+        const discountForProduct = grossTotal > 0 ? (productValue / grossTotal) * totalDiscountAmount : 0;
+        const taxableValueForProduct = productValue - discountForProduct;
+        return acc + (taxableValueForProduct * (p.gstRate / 100));
     }, 0);
+    
     const freightGstAmount = data.freight > 0 ? data.freight * (data.freightGstRate / 100) : 0;
-    const grandTotal = subTotal + data.freight + freightGstAmount;
+    const grandTotal = subTotal + totalGst + data.freight + freightGstAmount;
     
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
@@ -172,33 +183,46 @@ export const generatePdf = (data: QuotationData) => {
     const totalsStartX = totalsValueX - totalsSectionWidth;
     const totalsLabelX = totalsValueX - 45; 
 
+    doc.text('Gross Total:', totalsLabelX, yPos, { align: 'right' });
+    doc.text(formatCurrency(grossTotal), totalsValueX, yPos, { align: 'right' });
+    yPos += 6;
 
-    doc.text('Sub Total:', totalsLabelX, yPos, { align: 'right' });
-    doc.text(formatCurrency(subTotal), totalsValueX, yPos, { align: 'right' });
-    yPos += 6; // Increased spacing
+    if (totalDiscountAmount > 0) {
+        doc.text(`Discount:`, totalsLabelX, yPos, { align: 'right' });
+        doc.text(`- ${formatCurrency(totalDiscountAmount)}`, totalsValueX, yPos, { align: 'right' });
+        yPos += 6;
+    }
     
+    doc.text('Sub Total (Taxable):', totalsLabelX, yPos, { align: 'right' });
+    doc.text(formatCurrency(subTotal), totalsValueX, yPos, { align: 'right' });
+    yPos += 6;
+
+    doc.text('Total GST:', totalsLabelX, yPos, { align: 'right' });
+    doc.text(formatCurrency(totalGst), totalsValueX, yPos, { align: 'right' });
+    yPos += 6;
+
     if (data.freight > 0) {
       doc.text('Freight:', totalsLabelX, yPos, { align: 'right' });
       doc.text(formatCurrency(data.freight), totalsValueX, yPos, { align: 'right' });
-      yPos += 6; // Increased spacing
+      yPos += 6;
 
       doc.text(`GST @ ${data.freightGstRate}% on Freight:`, totalsLabelX, yPos, { align: 'right' });
       doc.text(formatCurrency(freightGstAmount), totalsValueX, yPos, { align: 'right' });
-      yPos += 6; // Increased spacing
+      yPos += 6;
     }
     
-    yPos += 2; // Add space before the line
+    yPos += 2;
     doc.setLineWidth(0.5);
     doc.line(totalsStartX, yPos, totalsValueX, yPos);
-    yPos += 5; // Increased space after the line
+    yPos += 5;
     doc.text('Grand Total:', totalsLabelX, yPos, { align: 'right' });
     doc.text(formatCurrency(grandTotal), totalsValueX, yPos, { align: 'right' });
-    yPos += 10; // Increased spacing
+    yPos += 10;
 
     // Terms and Conditions
     doc.setFont('helvetica', 'bold');
     doc.text('Terms and condition:', 14, yPos);
-    yPos += 6; // Increased spacing
+    yPos += 6;
 
     const terms = [
         { label: 'Validity', value: 'The above price is valid up to 30 days from the date of submission of the Quotation.' },

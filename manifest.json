@@ -1,4 +1,3 @@
-
 {
   "short_name": "SreeMeditec",
   "name": "SREE MEDITEC Quotation Generator",
@@ -16,7 +15,7 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#4f46e5",
+  "theme_color": "#81D7D3",
   "background_color": "#ffffff",
   "description": "A web-based application to generate, manage, and download professional quotations for SREE MEDITEC, with auto-filling capabilities for clients and products."
 }

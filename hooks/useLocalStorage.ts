@@ -1,5 +1,6 @@
 
-import { useState, useEffect } from 'react';
+// FIX: Imported React to resolve "Cannot find namespace 'React'" error for React.Dispatch and React.SetStateAction types.
+import React, { useState, useEffect } from 'react';
 
 function getStorageValue<T,>(key: string, defaultValue: T): T {
   if (typeof window !== 'undefined') {

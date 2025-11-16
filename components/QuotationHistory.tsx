@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { QuotationData } from '../types';
 
@@ -17,13 +18,34 @@ const formatCurrency = (amount: number) => {
 };
 
 const calculateGrandTotal = (quote: QuotationData): number => {
-    const subTotal = quote.products.reduce((sum, product) => {
-        const baseAmount = product.quantity * product.rate;
-        const totalAmount = baseAmount + (baseAmount * (product.gstRate / 100));
-        return sum + totalAmount;
+    const grossTotal = quote.products.reduce((sum, p) => sum + (p.quantity * p.rate), 0);
+    let totalDiscountAmount = 0;
+    const legacyQuote = quote as any;
+
+    // New format: totalDiscountAmount
+    if (quote.totalDiscountAmount && quote.totalDiscountAmount > 0) {
+        totalDiscountAmount = quote.totalDiscountAmount;
+    }
+    // Legacy format: per-item discount
+    else if (legacyQuote.products.some((p: any) => p.discount > 0)) {
+        totalDiscountAmount = legacyQuote.products.reduce((sum: number, p: any) => sum + ((p.discount || 0) * p.quantity), 0);
+    }
+    // Legacy format: totalDiscountPercentage
+    else if (legacyQuote.totalDiscountPercentage > 0) {
+        totalDiscountAmount = grossTotal * (legacyQuote.totalDiscountPercentage / 100);
+    }
+
+    const subTotal = grossTotal - totalDiscountAmount;
+
+    const totalGst = quote.products.reduce((sum, p) => {
+        const productValue = p.rate * p.quantity;
+        const discountForProduct = grossTotal > 0 ? (productValue / grossTotal) * totalDiscountAmount : 0;
+        const taxableValueForProduct = productValue - discountForProduct;
+        return sum + (taxableValueForProduct * (p.gstRate / 100));
     }, 0);
-    const freightGstAmount = quote.freight > 0 ? quote.freight * (quote.freightGstRate / 100) : 0;
-    return subTotal + quote.freight + freightGstAmount;
+
+    const freightGstAmount = (quote.freight || 0) > 0 ? (quote.freight || 0) * ((quote.freightGstRate || 0) / 100) : 0;
+    return subTotal + totalGst + (quote.freight || 0) + freightGstAmount;
 };
 
 const QuotationHistory: React.FC<QuotationHistoryProps> = ({ history, onLoad, onDelete, onRedownload }) => {
@@ -58,7 +80,7 @@ const QuotationHistory: React.FC<QuotationHistoryProps> = ({ history, onLoad, on
             placeholder="Search by Ref No, Client, or Date..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-[#81D7D3] focus:border-[#81D7D3] sm:text-sm"
           />
         </div>
       </div>
@@ -111,7 +133,7 @@ const QuotationHistory: React.FC<QuotationHistoryProps> = ({ history, onLoad, on
                 <button
                   onClick={() => onRedownload(quote)}
                   disabled={quote.status === 'draft'}
-                  className="text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-xs font-medium text-[#5aa5a0] bg-[#e6f7f6] hover:bg-[#d9f2f0] px-3 py-1 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                    aria-label={`Re-download PDF for quotation ${quote.refNo}`}
                 >
                   Re-download

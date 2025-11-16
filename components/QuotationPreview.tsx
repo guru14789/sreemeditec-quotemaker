@@ -17,13 +17,19 @@ const formatCurrency = (amount: number) => {
 
 
 const QuotationPreview: React.FC<QuotationPreviewProps> = ({ data }) => {
-  const subTotal = data.products.reduce((sum, product) => {
-    const baseAmount = product.quantity * product.rate;
-    const totalAmount = baseAmount + (baseAmount * (product.gstRate / 100));
-    return sum + totalAmount;
+  const grossTotal = data.products.reduce((sum, p) => sum + (p.rate * p.quantity), 0);
+  const totalDiscountAmount = data.totalDiscountAmount || 0;
+  const subTotal = grossTotal - totalDiscountAmount;
+
+  const totalGst = data.products.reduce((sum, p) => {
+    const productValue = p.rate * p.quantity;
+    const discountForProduct = grossTotal > 0 ? (productValue / grossTotal) * totalDiscountAmount : 0;
+    const taxableValueForProduct = productValue - discountForProduct;
+    return sum + (taxableValueForProduct * (p.gstRate / 100));
   }, 0);
+
   const freightGstAmount = data.freight > 0 ? data.freight * (data.freightGstRate / 100) : 0;
-  const grandTotal = subTotal + data.freight + freightGstAmount;
+  const grandTotal = subTotal + totalGst + data.freight + freightGstAmount;
 
   return (
     <div className="w-full bg-white p-4 sm:p-6 shadow-lg rounded-lg border border-gray-200 text-gray-900">
@@ -56,7 +62,7 @@ const QuotationPreview: React.FC<QuotationPreviewProps> = ({ data }) => {
       </div>
 
       <div className="mb-5 text-sm">
-        <p><span className="font-bold">Sub:</span> Reg. Price Quotation for {data.products.map(p => p.name).join(' and ')}.</p>
+        <p><span className="font-bold">Sub:</span> {data.subject}</p>
       </div>
 
       <p className="mb-4 text-sm">Sir, this is with ref to the discussion we had with you we are happy in submitting our quotation for the same.</p>
@@ -77,9 +83,11 @@ const QuotationPreview: React.FC<QuotationPreviewProps> = ({ data }) => {
           </thead>
           <tbody>
             {data.products.map((product) => {
-              const baseAmount = product.quantity * product.rate;
-              const gstAmount = baseAmount * (product.gstRate / 100);
-              const totalAmount = baseAmount + gstAmount;
+              const productValue = product.rate * product.quantity;
+              const discountForProduct = grossTotal > 0 ? (productValue / grossTotal) * totalDiscountAmount : 0;
+              const taxableValueForProduct = productValue - discountForProduct;
+              const gstAmount = taxableValueForProduct * (product.gstRate / 100);
+              const totalAmount = taxableValueForProduct + gstAmount;
               return (
                 <tr key={product.id}>
                   <td className="border border-gray-300 p-2 align-top text-gray-900">{product.name}</td>
@@ -107,25 +115,39 @@ const QuotationPreview: React.FC<QuotationPreviewProps> = ({ data }) => {
       <div className="flex justify-end text-sm mb-6">
         <div className="w-full sm:w-2/3 md:w-1/2">
           <div className="flex justify-between py-1">
-            <span>Sub Total</span>
-            <span className="font-bold text-right">Rs.{formatCurrency(subTotal)}</span>
+            <span>Gross Total</span>
+            <span className="font-bold text-right">Rs.{formatCurrency(grossTotal)}</span>
           </div>
-            {data.freight > 0 && (
-              <>
-                <div className="flex justify-between py-1">
-                  <span>Freight</span>
-                  <span className="font-bold text-right">Rs.{formatCurrency(data.freight)}</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span>GST @ {data.freightGstRate}% on Freight</span>
-                  <span className="font-bold text-right">Rs.{formatCurrency(freightGstAmount)}</span>
-                </div>
-              </>
-            )}
+          {totalDiscountAmount > 0 && (
+            <div className="flex justify-between py-1 text-red-600">
+                <span>Discount</span>
+                <span className="font-bold text-right">- Rs.{formatCurrency(totalDiscountAmount)}</span>
+            </div>
+          )}
+          <div className="flex justify-between py-1 font-semibold border-t border-gray-300 mt-1 pt-1">
+            <span>Sub Total (Taxable)</span>
+            <span className="text-right">Rs.{formatCurrency(subTotal)}</span>
+          </div>
+           <div className="flex justify-between py-1">
+            <span>Total GST</span>
+            <span className="font-bold text-right">Rs.{formatCurrency(totalGst)}</span>
+          </div>
+          {data.freight > 0 && (
+            <>
+              <div className="flex justify-between py-1">
+                <span>Freight</span>
+                <span className="font-bold text-right">Rs.{formatCurrency(data.freight)}</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>GST @ {data.freightGstRate}% on Freight</span>
+                <span className="font-bold text-right">Rs.{formatCurrency(freightGstAmount)}</span>
+              </div>
+            </>
+          )}
           <div className="border-t border-gray-900 my-2 pt-2"></div>
           <div className="flex justify-between">
-            <span className="font-bold">Grand Total</span>
-            <span className="font-bold text-right">Rs.{formatCurrency(grandTotal)}</span>
+            <span className="font-bold text-lg">Grand Total</span>
+            <span className="font-bold text-right text-lg">Rs.{formatCurrency(grandTotal)}</span>
           </div>
         </div>
       </div>

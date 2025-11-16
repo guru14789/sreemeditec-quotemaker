@@ -10,7 +10,7 @@ export interface ProductItem {
 }
 
 export interface Client {
-  name: string;
+  name:string;
   address: string;
   gst: string;
 }
@@ -42,6 +42,7 @@ export interface QuotationData {
   refNo: string;
   date: string;
   client: Client;
+  subject: string;
   products: ProductItem[];
   terms: Terms;
   bankDetails: BankDetails;
@@ -50,5 +51,6 @@ export interface QuotationData {
   stamp: string | null;
   freight: number;
   freightGstRate: number;
+  totalDiscountAmount?: number;
   status?: 'draft' | 'finalized';
 }

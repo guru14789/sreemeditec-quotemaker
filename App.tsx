@@ -1,12 +1,13 @@
-
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { QuotationData, Client, StoredProduct, ProductItem } from './types';
 import { DEFAULT_TERMS, DEFAULT_BANK_DETAILS } from './constants';
 import QuotationPreview from './components/QuotationPreview';
 import QuotationHistory from './components/QuotationHistory';
+import ProductList from './components/ProductList';
 import { generatePdf } from './services/pdfGenerator';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDebounce } from './hooks/useDebounce';
+import { backgroundPattern } from './assets/backgroundPattern';
 
 const formatRefNo = (num: number) => `SMQ ${String(num).padStart(3, '0')}`;
 
@@ -17,12 +18,13 @@ const App: React.FC = () => {
     const [history, setHistory] = useLocalStorage<QuotationData[]>('quotationHistory', []);
     
     const [activeMobileView, setActiveMobileView] = useState<'form' | 'rightPanel'>('form');
-    const [activeRightPanel, setActiveRightPanel] = useState<'preview' | 'history'>('preview');
+    const [activeRightPanel, setActiveRightPanel] = useState<'preview' | 'history' | 'list'>('preview');
 
     const [clientSuggestions, setClientSuggestions] = useState<Client[]>([]);
     const [productSuggestions, setProductSuggestions] = useState<StoredProduct[]>([]);
     const [activeSuggestionBox, setActiveSuggestionBox] = useState<string | null>(null);
     const [isDataLoaded, setIsDataLoaded] = useState(false);
+    const [copiedProduct, setCopiedProduct] = useState<StoredProduct | null>(null);
     const prevQuotationDataRef = useRef<QuotationData | undefined>(undefined);
 
 
@@ -62,11 +64,13 @@ const App: React.FC = () => {
         refNo: formatRefNo(currentLastRef + 1),
         date: new Date().toISOString().split('T')[0],
         client: { name: '', address: '', gst: '' },
+        subject: '',
         products: [{ id: crypto.randomUUID(), name: '', model: '', features: '', quantity: 1, rate: 0, gstRate: 12 }],
         terms: DEFAULT_TERMS,
         bankDetails: DEFAULT_BANK_DETAILS,
         freight: 0,
         freightGstRate: 18,
+        totalDiscountAmount: 0,
     }), []);
 
     const [quotationData, setQuotationData] = useState<QuotationData>(() => ({
@@ -77,9 +81,26 @@ const App: React.FC = () => {
         status: 'draft',
     }));
     
-    const debouncedQuotationData = useDebounce(quotationData, 500);
+    const debouncedQuotationData = useDebounce(quotationData, 2000);
+    
+    // Auto-generate subject when product names change
+    const productNamesString = useMemo(() => JSON.stringify(quotationData.products.map(p => p.name)), [quotationData.products]);
+    useEffect(() => {
+        const productNames = quotationData.products
+            .map(p => p.name)
+            .filter(name => name && name.trim() !== '');
+        
+        const newSubject = productNames.length > 0
+            ? `Reg. Price Quotation for ${productNames.join(' and ')}.`
+            : '';
+            
+        setQuotationData(prev => ({ ...prev, subject: newSubject }));
+        
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [productNamesString]);
 
-    // Effect for AUTOSAVING to localStorage
+
+    // Effect for AUTOSAVING client to localStorage
     useEffect(() => {
         if (!isDataLoaded || !debouncedQuotationData || JSON.stringify(debouncedQuotationData) === JSON.stringify(prevQuotationDataRef.current)) {
             return;
@@ -103,32 +124,52 @@ const App: React.FC = () => {
                 return prevClients;
             });
         }
-
-        // Save/Update products from form
-        setProducts(prevProducts => {
-            const newProducts = [...prevProducts];
-            let hasChanged = false;
-            debouncedQuotationData.products.forEach((p: ProductItem) => {
-                if (!p.name) return;
-                const { id, quantity, ...productToStore } = p;
-                const productIndex = newProducts.findIndex(sp => sp.name.toLowerCase() === p.name.toLowerCase());
-
-                if (productIndex > -1) {
-                    if (JSON.stringify(newProducts[productIndex]) !== JSON.stringify(productToStore)) {
-                        newProducts[productIndex] = productToStore;
-                        hasChanged = true;
-                    }
-                } else {
-                    newProducts.push(productToStore);
-                    hasChanged = true;
-                }
-            });
-            return hasChanged ? newProducts : prevProducts;
-        });
         
         prevQuotationDataRef.current = debouncedQuotationData;
 
-    }, [debouncedQuotationData, isDataLoaded, setClients, setProducts]);
+    }, [debouncedQuotationData, isDataLoaded, setClients]);
+    
+    // Effect for AUTOSAVING products to localStorage
+    useEffect(() => {
+        if (!isDataLoaded || !debouncedQuotationData) {
+            return;
+        }
+
+        setProducts(prevProducts => {
+            let newProducts = [...prevProducts];
+            let hasChanged = false;
+
+            const productsFromForm = debouncedQuotationData.products.filter(p => p.name && p.name.trim() !== '');
+
+            productsFromForm.forEach(formProduct => {
+                const productData: StoredProduct = {
+                    name: formProduct.name,
+                    model: formProduct.model,
+                    features: formProduct.features,
+                    rate: formProduct.rate,
+                    gstRate: formProduct.gstRate,
+                };
+
+                const existingIndex = newProducts.findIndex(p => p.name.toLowerCase() === productData.name.toLowerCase());
+
+                if (existingIndex > -1) {
+                    // It exists, check if it needs an update
+                    if (JSON.stringify(newProducts[existingIndex]) !== JSON.stringify(productData)) {
+                        newProducts[existingIndex] = productData;
+                        hasChanged = true;
+                    }
+                } else {
+                    // It's a new product, add it
+                    newProducts.push(productData);
+                    hasChanged = true;
+                }
+            });
+
+            return hasChanged ? newProducts : prevProducts;
+        });
+
+    }, [debouncedQuotationData, isDataLoaded, setProducts]);
+
 
     const handleBlur = () => {
         setTimeout(() => setActiveSuggestionBox(null), 150);
@@ -217,7 +258,7 @@ const App: React.FC = () => {
         }));
     };
     
-    const handleFreightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleNumericChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setQuotationData(prev => ({
             ...prev,
@@ -289,15 +330,35 @@ const App: React.FC = () => {
 
     const handleLoadFromHistory = (quote: QuotationData) => {
         const defaultState = getInitialState(lastRefNo);
-        // Deep merge to prevent missing fields if loading an older quote structure
+
+        // Calculate totalDiscountAmount for backward compatibility
+        let totalDiscountAmount = quote.totalDiscountAmount || 0;
+        const legacyQuote = quote as any;
+
+        // Legacy: per-item discount
+        if (!totalDiscountAmount && legacyQuote.products.some((p: any) => p.discount > 0)) {
+            totalDiscountAmount = legacyQuote.products.reduce((sum: number, p: any) => sum + ((p.discount || 0) * p.quantity), 0);
+        }
+        // Legacy: percentage discount
+        else if (!totalDiscountAmount && legacyQuote.totalDiscountPercentage > 0) {
+            const grossTotal = legacyQuote.products.reduce((sum: number, p: any) => sum + (p.quantity * p.rate), 0);
+            totalDiscountAmount = grossTotal * (legacyQuote.totalDiscountPercentage / 100);
+        }
+        
+        // Generate subject if it doesn't exist for older quotes
+        const subject = quote.subject === undefined
+            ? (quote.products.length > 0 ? `Reg. Price Quotation for ${quote.products.map(p => p.name).join(' and ')}.` : '')
+            : quote.subject;
+
         const mergedData: QuotationData = {
             ...defaultState,
             ...quote,
+            subject,
             client: { ...defaultState.client, ...quote.client },
             terms: { ...defaultState.terms, ...quote.terms },
             bankDetails: { ...defaultState.bankDetails, ...quote.bankDetails },
             products: quote.products.map(p => ({
-                id: p.id || crypto.randomUUID(), // Ensure old products get an ID
+                id: p.id || crypto.randomUUID(),
                 name: p.name || '',
                 model: p.model || '',
                 features: p.features || '',
@@ -305,11 +366,15 @@ const App: React.FC = () => {
                 rate: p.rate || 0,
                 gstRate: p.gstRate || 12,
             })),
+            totalDiscountAmount, // Use the calculated/existing amount
             // Preserve assets from the current session
             logo: quotationData.logo,
             signature: quotationData.signature,
             stamp: quotationData.stamp,
         };
+
+        delete (mergedData as any).totalDiscountPercentage; // Clean up old property
+        
         setQuotationData(mergedData);
         setActiveRightPanel('preview'); // Switch to preview after loading
         if (window.innerWidth < 768) {
@@ -327,22 +392,92 @@ const App: React.FC = () => {
         generatePdf(quote);
     }
     
+    const handleUpdateProduct = (originalName: string, updatedProduct: StoredProduct) => {
+        setProducts(prevProducts => {
+            const productIndex = prevProducts.findIndex(p => p.name.toLowerCase() === originalName.toLowerCase());
+            if (productIndex > -1) {
+                const newProducts = [...prevProducts];
+
+                const duplicateIndex = newProducts.findIndex((p, index) => 
+                    index !== productIndex && p.name.toLowerCase() === updatedProduct.name.toLowerCase()
+                );
+
+                if (duplicateIndex > -1) {
+                    alert(`Product name "${updatedProduct.name}" already exists. Please use a unique name.`);
+                    return prevProducts; // Abort update
+                }
+                
+                newProducts[productIndex] = updatedProduct;
+                return newProducts;
+            }
+            return prevProducts;
+        });
+        alert('Product updated successfully!');
+    };
+
+    const handleDeleteProduct = (productName: string) => {
+        if (window.confirm(`Are you sure you want to delete the product "${productName}"? This cannot be undone.`)) {
+            setProducts(prev => prev.filter(p => p.name.toLowerCase() !== productName.toLowerCase()));
+        }
+    };
+
+    const handleCopyProduct = (product: StoredProduct) => {
+        setCopiedProduct(product);
+        alert(`Product "${product.name}" copied. You can now paste it in the Product Details section.`);
+    };
+
+    const handlePasteProduct = () => {
+        if (!copiedProduct) return;
+
+        const lastProduct = quotationData.products[quotationData.products.length - 1];
+        const isLastProductEmpty = lastProduct && !lastProduct.name.trim() && !lastProduct.model.trim() && lastProduct.rate === 0;
+
+        const newProduct: ProductItem = {
+            ...copiedProduct,
+            id: crypto.randomUUID(),
+            quantity: 1,
+        };
+        
+        if (isLastProductEmpty) {
+            // If the last product item is empty, replace it with the copied product
+            setQuotationData(prev => ({
+                ...prev,
+                products: [...prev.products.slice(0, -1), { ...newProduct, id: lastProduct.id }],
+            }));
+        } else {
+            // Otherwise, add the copied product as a new item
+            setQuotationData(prev => ({
+                ...prev,
+                products: [...prev.products, newProduct],
+            }));
+        }
+    };
+
+
     const renderInput = (label: string, name: string, value: string | number, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, type = 'text', props = {}) => (
         <div>
             <label htmlFor={name} className="block text-sm font-medium text-gray-700">{label}</label>
-            <input type={type} id={name} name={name} value={value} onChange={onChange} {...props} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
+            <input type={type} id={name} name={name} value={value} onChange={onChange} {...props} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#81D7D3] focus:border-[#81D7D3] sm:text-sm" />
         </div>
     );
 
     const renderTextarea = (label: string, name: string, value: string, onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void, rows = 3) => (
         <div>
             <label htmlFor={name} className="block text-sm font-medium text-gray-700">{label}</label>
-            <textarea id={name} name={name} value={value} onChange={onChange} rows={rows} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></textarea>
+            <textarea id={name} name={name} value={value} onChange={onChange} rows={rows} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#81D7D3] focus:border-[#81D7D3] sm:text-sm"></textarea>
         </div>
     );
 
     return (
-        <main className="flex flex-col md:flex-row h-screen bg-gray-100 font-sans">
+        <main
+            className="flex flex-col md:flex-row h-screen font-sans"
+            style={{
+                backgroundColor: '#f0faf9',
+                backgroundImage: `url(${backgroundPattern})`,
+                backgroundRepeat: 'repeat',
+                backgroundSize: '250px',
+            }}
+        >
             {/* Left Side: Form */}
             <div className={`w-full md:w-1/2 p-4 sm:p-6 overflow-y-auto ${activeMobileView === 'form' ? 'block' : 'hidden'} md:block`}>
                 <div className="bg-white p-4 sm:p-6 shadow-lg rounded-lg border border-gray-200 text-gray-900">
@@ -360,7 +495,7 @@ const App: React.FC = () => {
                         <h2 className="text-lg font-semibold text-gray-700 border-b pb-2">Client Details</h2>
                         <div className="relative">
                            <label htmlFor="clientName" className="block text-sm font-medium text-gray-700">Client Name</label>
-                            <input type="text" id="clientName" name="name" value={quotationData.client.name} onChange={handleClientChange} onFocus={() => setActiveSuggestionBox('client')} onBlur={handleBlur} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" autoComplete="off" />
+                            <input type="text" id="clientName" name="name" value={quotationData.client.name} onChange={handleClientChange} onFocus={() => setActiveSuggestionBox('client')} onBlur={handleBlur} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#81D7D3] focus:border-[#81D7D3] sm:text-sm" autoComplete="off" />
                             {activeSuggestionBox === 'client' && clientSuggestions.length > 0 && (
                                 <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg mt-1 max-h-60 overflow-auto">
                                     {clientSuggestions.map((client, i) => (
@@ -371,6 +506,11 @@ const App: React.FC = () => {
                         </div>
                          {renderTextarea('Client Address', 'address', quotationData.client.address, handleClientChange)}
                          {renderInput('Client GST', 'gst', quotationData.client.gst, handleClientChange)}
+                    </section>
+                    
+                    <section className="space-y-4 mb-6">
+                        <h2 className="text-lg font-semibold text-gray-700 border-b pb-2">Subject</h2>
+                        {renderInput('Subject Line', 'subject', quotationData.subject, (e) => setQuotationData(prev => ({...prev, subject: e.target.value})))}
                     </section>
 
                     <section className="space-y-4 mb-6">
@@ -383,7 +523,7 @@ const App: React.FC = () => {
                                 </div>
                                 <div className="relative">
                                     <label htmlFor={`productName-${product.id}`} className="block text-sm font-medium text-gray-700">Product Name</label>
-                                    <input type="text" id={`productName-${product.id}`} name="name" value={product.name} onChange={(e) => handleProductChange(product.id, e)} onFocus={() => setActiveSuggestionBox(`product-${product.id}`)} onBlur={handleBlur} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" autoComplete="off" />
+                                    <input type="text" id={`productName-${product.id}`} name="name" value={product.name} onChange={(e) => handleProductChange(product.id, e)} onFocus={() => setActiveSuggestionBox(`product-${product.id}`)} onBlur={handleBlur} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-[#81D7D3] focus:border-[#81D7D3] sm:text-sm" autoComplete="off" />
                                      {activeSuggestionBox === `product-${product.id}` && productSuggestions.length > 0 && (
                                         <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg mt-1 max-h-60 overflow-auto">
                                             {productSuggestions.map((p, i) => (
@@ -398,19 +538,29 @@ const App: React.FC = () => {
                                 </div>
                                 {renderTextarea('Features (one per line)', 'features', product.features, (e) => handleProductChange(product.id, e))}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                  {renderInput('Rate', 'rate', product.rate, (e) => handleProductChange(product.id, e), 'number', {step: "0.01"})}
+                                  {renderInput('Rate (List Price)', 'rate', product.rate, (e) => handleProductChange(product.id, e), 'number', {step: "0.01"})}
                                   {renderInput('GST Rate (%)', 'gstRate', product.gstRate, (e) => handleProductChange(product.id, e), 'number')}
                                 </div>
                             </div>
                         ))}
-                        <button onClick={addProduct} className="w-full text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-md transition-colors text-sm font-medium">Add Product</button>
+                        <div className="flex items-center gap-3 pt-2">
+                            <button onClick={addProduct} className="flex-grow text-[#5aa5a0] bg-[#e6f7f6] hover:bg-[#d9f2f0] px-4 py-2 rounded-md transition-colors text-sm font-medium">Add Product</button>
+                            {copiedProduct && (
+                                <button onClick={handlePasteProduct} className="flex-grow text-green-600 bg-green-50 hover:bg-green-100 px-4 py-2 rounded-md transition-colors text-sm font-medium whitespace-nowrap">
+                                    Paste "{copiedProduct.name.substring(0, 15)}{copiedProduct.name.length > 15 ? '...' : ''}"
+                                </button>
+                            )}
+                        </div>
                     </section>
-                    
+
                     <section className="space-y-4 mb-6">
-                        <h2 className="text-lg font-semibold text-gray-700 border-b pb-2">Freight Charges</h2>
+                        <h2 className="text-lg font-semibold text-gray-700 border-b pb-2">Charges & Discounts</h2>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                           {renderInput('Freight', 'freight', quotationData.freight, handleFreightChange, 'number', {step: "0.01"})}
-                           {renderInput('Freight GST Rate (%)', 'freightGstRate', quotationData.freightGstRate, handleFreightChange, 'number')}
+                           {renderInput('Total Discount Amount', 'totalDiscountAmount', quotationData.totalDiscountAmount || 0, handleNumericChange, 'number', {step: "0.01"})}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
+                           {renderInput('Freight', 'freight', quotationData.freight, handleNumericChange, 'number', {step: "0.01"})}
+                           {renderInput('Freight GST Rate (%)', 'freightGstRate', quotationData.freightGstRate, handleNumericChange, 'number')}
                         </div>
                     </section>
 
@@ -427,7 +577,7 @@ const App: React.FC = () => {
                             {['logo', 'signature', 'stamp'].map(asset => (
                                 <div key={asset}>
                                     <label htmlFor={asset} className="block text-sm font-medium text-gray-700 capitalize">{asset}</label>
-                                    <input type="file" id={asset} name={asset} onChange={handleFileChange} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-600 hover:file:bg-indigo-100"/>
+                                    <input type="file" id={asset} name={asset} onChange={handleFileChange} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#e6f7f6] file:text-[#5aa5a0] hover:file:bg-[#d9f2f0]"/>
                                     {quotationData[asset as keyof QuotationData] && <img src={quotationData[asset as keyof QuotationData] as string} alt={asset} className="mt-2 h-16 w-auto object-contain border p-1 rounded"/>}
                                 </div>
                             ))}
@@ -435,7 +585,7 @@ const App: React.FC = () => {
                     </section>
 
                     <div className="mt-8 flex flex-col sm:flex-row-reverse justify-center gap-3">
-                        <button onClick={handleGeneratePdf} className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        <button onClick={handleGeneratePdf} className="w-full sm:w-auto bg-[#81D7D3] hover:bg-[#6abfb8] text-white font-bold py-3 px-8 rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#81D7D3]">
                           Generate PDF & Create New
                         </button>
                         <button onClick={handleSaveDraft} className="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-8 rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400">
@@ -448,22 +598,24 @@ const App: React.FC = () => {
 
             {/* Right Side: Preview/History */}
             <div className={`w-full md:w-1/2 p-4 sm:p-6 overflow-y-auto ${activeMobileView === 'rightPanel' ? 'block' : 'hidden'} md:block`}>
-                <div className="sticky top-0 bg-gray-100 z-10 pt-2 pb-2">
+                <div className="sticky top-0 z-10 pt-2 pb-2">
                    <div className="flex border-b border-gray-200 bg-white rounded-t-lg shadow-lg">
-                       <button onClick={() => setActiveRightPanel('preview')} className={`flex-1 py-2 px-4 text-sm font-medium rounded-tl-lg ${activeRightPanel === 'preview' ? 'bg-indigo-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>Preview</button>
-                       <button onClick={() => setActiveRightPanel('history')} className={`flex-1 py-2 px-4 text-sm font-medium rounded-tr-lg ${activeRightPanel === 'history' ? 'bg-indigo-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>History</button>
+                       <button onClick={() => setActiveRightPanel('preview')} className={`flex-1 py-2 px-4 text-sm font-medium rounded-tl-lg ${activeRightPanel === 'preview' ? 'bg-[#81D7D3] text-white' : 'text-gray-500 hover:bg-gray-100'}`}>Preview</button>
+                       <button onClick={() => setActiveRightPanel('history')} className={`flex-1 py-2 px-4 text-sm font-medium ${activeRightPanel === 'history' ? 'bg-[#81D7D3] text-white' : 'text-gray-500 hover:bg-gray-100'}`}>History</button>
+                       <button onClick={() => setActiveRightPanel('list')} className={`flex-1 py-2 px-4 text-sm font-medium rounded-tr-lg ${activeRightPanel === 'list' ? 'bg-[#81D7D3] text-white' : 'text-gray-500 hover:bg-gray-100'}`}>List</button>
                    </div>
                </div>
                 <div>
                    {activeRightPanel === 'preview' && <QuotationPreview data={quotationData} />}
                    {activeRightPanel === 'history' && <QuotationHistory history={history} onLoad={handleLoadFromHistory} onDelete={handleDeleteFromHistory} onRedownload={handleRedownload} />}
+                   {activeRightPanel === 'list' && <ProductList products={products} onUpdateProduct={handleUpdateProduct} onDeleteProduct={handleDeleteProduct} onCopyProduct={handleCopyProduct} />}
                 </div>
             </div>
 
             {/* Mobile View Toggle */}
             <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex shadow-2xl">
-                <button onClick={() => setActiveMobileView('form')} className={`flex-1 py-3 text-sm font-medium ${activeMobileView === 'form' ? 'bg-indigo-500 text-white' : 'text-gray-600'}`}>Form</button>
-                <button onClick={() => setActiveMobileView('rightPanel')} className={`flex-1 py-3 text-sm font-medium ${activeMobileView === 'rightPanel' ? 'bg-indigo-500 text-white' : 'text-gray-600'}`}>Preview/History</button>
+                <button onClick={() => setActiveMobileView('form')} className={`flex-1 py-3 text-sm font-medium ${activeMobileView === 'form' ? 'bg-[#81D7D3] text-white' : 'text-gray-600'}`}>Form</button>
+                <button onClick={() => setActiveMobileView('rightPanel')} className={`flex-1 py-3 text-sm font-medium ${activeMobileView === 'rightPanel' ? 'bg-[#81D7D3] text-white' : 'text-gray-600'}`}>Preview/History</button>
             </div>
         </main>
     );
