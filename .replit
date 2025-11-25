@@ -38,5 +38,20 @@ localPort = 5001
 externalPort = 3000
 
 [[ports]]
+localPort = 33767
+externalPort = 3002
+
+[[ports]]
 localPort = 34843
 externalPort = 3001
+
+[userenv]
+
+[userenv.shared]
+VITE_FIREBASE_API_KEY = "AIzaSyAaXzKWP-AUWfDrH12TtzuG0dnxvB3_qEE"
+VITE_FIREBASE_AUTH_DOMAIN = "sreemeditec-35f21.firebaseapp.com"
+VITE_FIREBASE_PROJECT_ID = "sreemeditec-35f21"
+VITE_FIREBASE_STORAGE_BUCKET = "sreemeditec-35f21.firebasestorage.app"
+VITE_FIREBASE_MESSAGING_SENDER_ID = "117300572565"
+VITE_FIREBASE_APP_ID = "1:117300572565:web:887143d5c209510352469c"
+VITE_FIREBASE_MEASUREMENT_ID = "G-L38P10TF9B"
