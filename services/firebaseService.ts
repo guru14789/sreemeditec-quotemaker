@@ -1,13 +1,14 @@
 import { 
   collection, 
-  addDoc, 
   getDocs, 
   query, 
   orderBy, 
   limit,
   Timestamp,
   deleteDoc,
-  doc
+  doc,
+  setDoc,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { QuotationData } from '../types';
@@ -17,17 +18,19 @@ const QUOTATIONS_COLLECTION = 'quotations';
 export interface FirebaseQuotation extends QuotationData {
   id?: string;
   createdAt?: Timestamp;
+  updatedAt?: Timestamp;
 }
 
 export const saveQuotationToFirebase = async (quotation: QuotationData): Promise<string> => {
   try {
-    const quotationData: FirebaseQuotation = {
+    const docRef = doc(db, QUOTATIONS_COLLECTION, quotation.refNo);
+    const quotationData = {
       ...quotation,
-      createdAt: Timestamp.now()
+      updatedAt: serverTimestamp()
     };
     
-    const docRef = await addDoc(collection(db, QUOTATIONS_COLLECTION), quotationData);
-    return docRef.id;
+    await setDoc(docRef, quotationData, { merge: true });
+    return quotation.refNo;
   } catch (error) {
     console.error('Error saving quotation to Firebase:', error);
     throw error;
@@ -38,7 +41,7 @@ export const loadQuotationsFromFirebase = async (maxResults: number = 50): Promi
   try {
     const q = query(
       collection(db, QUOTATIONS_COLLECTION),
-      orderBy('createdAt', 'desc'),
+      orderBy('updatedAt', 'desc'),
       limit(maxResults)
     );
     
@@ -59,9 +62,9 @@ export const loadQuotationsFromFirebase = async (maxResults: number = 50): Promi
   }
 };
 
-export const deleteQuotationFromFirebase = async (id: string): Promise<void> => {
+export const deleteQuotationFromFirebase = async (refNo: string): Promise<void> => {
   try {
-    await deleteDoc(doc(db, QUOTATIONS_COLLECTION, id));
+    await deleteDoc(doc(db, QUOTATIONS_COLLECTION, refNo));
   } catch (error) {
     console.error('Error deleting quotation from Firebase:', error);
     throw error;

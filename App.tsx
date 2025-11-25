@@ -8,6 +8,7 @@ import { generatePdf } from './services/pdfGenerator';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useDebounce } from './hooks/useDebounce';
 import { backgroundPattern } from './assets/backgroundPattern';
+import { saveQuotationToFirebase, loadQuotationsFromFirebase, deleteQuotationFromFirebase } from './services/firebaseService';
 
 const formatRefNo = (num: number) => `SMQ ${String(num).padStart(3, '0')}`;
 
@@ -15,7 +16,7 @@ const App: React.FC = () => {
     const [clients, setClients] = useLocalStorage<Client[]>('clients', []);
     const [products, setProducts] = useLocalStorage<StoredProduct[]>('products', []);
     const [lastRefNo, setLastRefNo] = useLocalStorage<number>('lastRefNo', 71);
-    const [history, setHistory] = useLocalStorage<QuotationData[]>('quotationHistory', []);
+    const [history, setHistory] = useState<QuotationData[]>([]);
     
     const [activeMobileView, setActiveMobileView] = useState<'form' | 'rightPanel'>('form');
     const [activeRightPanel, setActiveRightPanel] = useState<'preview' | 'history' | 'list'>('preview');
@@ -57,6 +58,22 @@ const App: React.FC = () => {
         };
         loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        const loadHistoryFromFirebase = async () => {
+            try {
+                const quotations = await loadQuotationsFromFirebase(100);
+                const formattedQuotations = quotations.map(q => {
+                    const { createdAt, ...rest } = q;
+                    return rest;
+                });
+                setHistory(formattedQuotations);
+            } catch (error) {
+                console.error("Error loading quotation history from Firebase:", error);
+            }
+        };
+        loadHistoryFromFirebase();
     }, []);
 
 
@@ -266,32 +283,40 @@ const App: React.FC = () => {
         }));
     };
 
-    const saveOrUpdateHistory = (quote: QuotationData) => {
-        setHistory(prevHistory => {
-            const existingIndex = prevHistory.findIndex(h => h.refNo === quote.refNo);
-            let newHistory: QuotationData[];
-            if (existingIndex > -1) {
-                newHistory = [...prevHistory];
-                newHistory[existingIndex] = quote;
-            } else {
-                newHistory = [quote, ...prevHistory];
-            }
+    const saveOrUpdateHistory = async (quote: QuotationData) => {
+        try {
+            const docId = await saveQuotationToFirebase(quote);
+            const quoteWithId = { ...quote, id: docId };
+            
+            setHistory(prevHistory => {
+                const existingIndex = prevHistory.findIndex(h => h.refNo === quote.refNo);
+                let newHistory: QuotationData[];
+                if (existingIndex > -1) {
+                    newHistory = [...prevHistory];
+                    newHistory[existingIndex] = quoteWithId;
+                } else {
+                    newHistory = [quoteWithId, ...prevHistory];
+                }
 
-            // Sort history: drafts first, then by ref number descending
-            newHistory.sort((a, b) => {
-                const isADraft = a.status === 'draft';
-                const isBDraft = b.status === 'draft';
+                // Sort history: drafts first, then by ref number descending
+                newHistory.sort((a, b) => {
+                    const isADraft = a.status === 'draft';
+                    const isBDraft = b.status === 'draft';
 
-                if (isADraft && !isBDraft) return -1;
-                if (!isADraft && isBDraft) return 1;
+                    if (isADraft && !isBDraft) return -1;
+                    if (!isADraft && isBDraft) return 1;
 
-                const aNum = parseInt(a.refNo.replace('SMQ ', ''), 10) || 0;
-                const bNum = parseInt(b.refNo.replace('SMQ ', ''), 10) || 0;
-                
-                return bNum - aNum;
+                    const aNum = parseInt(a.refNo.replace('SMQ ', ''), 10) || 0;
+                    const bNum = parseInt(b.refNo.replace('SMQ ', ''), 10) || 0;
+                    
+                    return bNum - aNum;
+                });
+                return newHistory;
             });
-            return newHistory;
-        });
+        } catch (error) {
+            console.error("Error saving quotation to Firebase:", error);
+            alert('Failed to save quotation. Please check your internet connection and try again.');
+        }
     };
 
     const handleSaveDraft = () => {
@@ -382,9 +407,15 @@ const App: React.FC = () => {
         }
     };
     
-    const handleDeleteFromHistory = (refNo: string) => {
+    const handleDeleteFromHistory = async (refNo: string) => {
         if (window.confirm(`Are you sure you want to delete quotation ${refNo}?`)) {
-            setHistory(prev => prev.filter(q => q.refNo !== refNo));
+            try {
+                await deleteQuotationFromFirebase(refNo);
+                setHistory(prev => prev.filter(q => q.refNo !== refNo));
+            } catch (error) {
+                console.error("Error deleting quotation from Firebase:", error);
+                alert('Failed to delete quotation. Please check your internet connection and try again.');
+            }
         }
     };
 

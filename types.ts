@@ -39,6 +39,7 @@ export interface BankDetails {
 }
 
 export interface QuotationData {
+  id?: string;
   refNo: string;
   date: string;
   client: Client;
