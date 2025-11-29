@@ -82,7 +82,7 @@ const App: React.FC = () => {
         date: new Date().toISOString().split('T')[0],
         client: { name: '', address: '', gst: '' },
         subject: '',
-        products: [{ id: crypto.randomUUID(), name: '', model: '', features: '', quantity: 1, rate: 0, gstRate: 12 }],
+        products: [{ id: crypto.randomUUID(), name: '', model: '', features: '', quantity: 1, quantityType: 'number', rate: 0, gstRate: 12 }],
         terms: DEFAULT_TERMS,
         bankDetails: DEFAULT_BANK_DETAILS,
         freight: 0,
@@ -223,7 +223,7 @@ const App: React.FC = () => {
         }
     };
     
-    const handleProductChange = (id: string, e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const handleProductChange = (id: string, e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setQuotationData(prev => ({
             ...prev,
@@ -245,7 +245,7 @@ const App: React.FC = () => {
     const addProduct = () => {
         setQuotationData(prev => ({
             ...prev,
-            products: [...prev.products, { id: crypto.randomUUID(), name: '', model: '', features: '', quantity: 1, rate: 0, gstRate: 12 }],
+            products: [...prev.products, { id: crypto.randomUUID(), name: '', model: '', features: '', quantity: 1, rate: 0, gstRate: 12, quantityType: 'number' }],
         }));
     };
     
@@ -390,6 +390,7 @@ const App: React.FC = () => {
                 quantity: p.quantity || 1,
                 rate: p.rate || 0,
                 gstRate: p.gstRate || 12,
+                quantityType: p.quantityType || 'number',
             })),
             totalDiscountAmount, // Use the calculated/existing amount
             // Preserve assets from the current session
@@ -467,6 +468,7 @@ const App: React.FC = () => {
             ...copiedProduct,
             id: crypto.randomUUID(),
             quantity: 1,
+            quantityType: copiedProduct.quantityType || 'number',
         };
         
         if (isLastProductEmpty) {
@@ -566,6 +568,22 @@ const App: React.FC = () => {
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                   {renderInput('Model', 'model', product.model, (e) => handleProductChange(product.id, e))}
                                   {renderInput('Quantity', 'quantity', product.quantity, (e) => handleProductChange(product.id, e), 'number')}
+                                  <div>
+                                    <label htmlFor={`quantityType-${product.id}`} className="block text-sm font-medium text-gray-700">Quantity Type</label>
+                                    <select
+                                      id={`quantityType-${product.id}`}
+                                      name="quantityType"
+                                      value={product.quantityType}
+                                      onChange={(e) => handleProductChange(product.id, e)}
+                                      className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-[#81D7D3] focus:border-[#81D7D3] sm:text-sm"
+                                    >
+                                      <option value="number">Number</option>
+                                      <option value="set">Set</option>
+                                      <option value="load">Load</option>
+                                      <option value="meter">Meter</option>
+                                      <option value="jar">Jar</option>
+                                    </select>
+                                  </div>
                                 </div>
                                 {renderTextarea('Features (one per line)', 'features', product.features, (e) => handleProductChange(product.id, e))}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

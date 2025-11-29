@@ -1,4 +1,3 @@
-
 import jsPDF from 'jspdf';
 // FIX: Switched to functional import for jspdf-autotable to resolve module augmentation error.
 import autoTable from 'jspdf-autotable';
@@ -22,6 +21,16 @@ const formatCurrency = (amount: number) => {
         currency: 'INR',
         minimumFractionDigits: 2,
     }).format(amount).replace('₹', 'Rs.');
+};
+
+const getQtyDisplay = (p: ProductItem) => {
+    if (p.quantityType === 'number') {
+        return `${p.quantity} ${p.quantity === 1 ? 'no' : 'nos'}`;
+    }
+    if (p.quantityType === 'm') {
+        return `${p.quantity} m`;
+    }
+    return `${p.quantity} ${p.quantityType}`;
 };
 
 export const generatePdf = (data: QuotationData) => {
@@ -116,7 +125,7 @@ export const generatePdf = (data: QuotationData) => {
             p.name,
             p.model,
             featuresText,
-            `${p.quantity} no`,
+            getQtyDisplay(p),
             formatCurrency(p.rate),
             `${p.gstRate}%`,
             formatCurrency(gstAmount),

@@ -1,3 +1,4 @@
+export type QuantityType = 'number' | 'set' | 'load' | 'm' | 'jar';
 
 export interface ProductItem {
   id: string;
@@ -5,6 +6,7 @@ export interface ProductItem {
   model: string;
   features: string;
   quantity: number;
+  quantityType: QuantityType;
   rate: number;
   gstRate: number;
 }

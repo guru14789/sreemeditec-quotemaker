@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { QuotationData } from '../types';
 import { numberToWords } from '../utils/numberToWords';
@@ -29,7 +28,8 @@ const QuotationPreview: React.FC<QuotationPreviewProps> = ({ data }) => {
   }, 0);
 
   const freightGstAmount = data.freight > 0 ? data.freight * (data.freightGstRate / 100) : 0;
-  const grandTotal = subTotal + totalGst + data.freight + freightGstAmount;
+  const grandTotalRaw = subTotal + totalGst + data.freight + freightGstAmount;
+  const grandTotal = Math.round(grandTotalRaw);
 
   return (
     <div className="w-full bg-white p-4 sm:p-6 shadow-lg rounded-lg border border-gray-200 text-gray-900">
@@ -97,7 +97,9 @@ const QuotationPreview: React.FC<QuotationPreviewProps> = ({ data }) => {
                       {product.features.split('\n').map((feature, i) => feature.trim() && <li key={i}>{feature}</li>)}
                     </ul>
                   </td>
-                  <td className="border border-gray-300 p-2 align-top text-center text-gray-900">{product.quantity} no</td>
+                  <td className="border border-gray-300 p-2 align-top text-center text-gray-900">
+                    {product.quantity} {product.quantityType === 'number' ? (product.quantity === 1 ? 'no' : 'nos') : product.quantityType}
+                  </td>
                   <td className="border border-gray-300 p-2 align-top text-right text-gray-900">Rs.{formatCurrency(product.rate)}</td>
                   <td className="border border-gray-300 p-2 align-top text-right text-gray-900">{product.gstRate}%</td>
                   <td className="border border-gray-300 p-2 align-top text-right text-gray-900">Rs.{formatCurrency(gstAmount)}</td>
@@ -182,7 +184,7 @@ const QuotationPreview: React.FC<QuotationPreviewProps> = ({ data }) => {
         </div>
       </div>
       
-      <div className="mt-10 text-sm">
+      <div className="mt-10 text-sm no-break">
         <p>Thanking you and looking forward for your order.</p>
         <p className="mt-6">With Regards,</p>
         <p>For SREE MEDITEC,</p>
